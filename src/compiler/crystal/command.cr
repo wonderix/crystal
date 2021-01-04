@@ -326,6 +326,9 @@ class Crystal::Command
             compiler.cross_compile = true
           end
         end
+        opts.on("-i", "--incremental", "Enable incremental compilation") do
+          compiler.incremental = true
+        end
         opts.on("-d", "--debug", "Add full symbolic debug info") do
           compiler.debug = Crystal::Debug::All
         end

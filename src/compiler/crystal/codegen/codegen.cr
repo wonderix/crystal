@@ -145,7 +145,7 @@ module Crystal
 
     record Handler, node : ExceptionHandler, context : Context
     record StringKey, mod : LLVM::Module, string : String
-    record ModuleInfo, mod : LLVM::Module, typer : LLVMTyper, builder : CrystalLLVMBuilder
+    record ModuleInfo, mod : LLVM::Module, typer : LLVMTyper, builder : CrystalLLVMBuilder, nodes = Array(ASTNode).new
 
     @abi : LLVM::ABI
     @main_ret_type : Type

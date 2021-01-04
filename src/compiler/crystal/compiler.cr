@@ -2,6 +2,8 @@ require "option_parser"
 require "file_utils"
 require "colorize"
 require "crystal/digest/md5"
+require "./syntax"
+require "./codegen/job"
 
 module Crystal
   @[Flags]
@@ -40,6 +42,9 @@ module Crystal
     # creates a `.o` file and outputs a command line to link
     # it in the target machine.
     property cross_compile = false
+
+    # If `true`, turns on incremental compilation
+    property incremental = false
 
     # Compiler flags. These will be true when checked in macro
     # code by the `flag?(...)` macro method.
@@ -265,6 +270,24 @@ module Crystal
       bc_flags_changed
     end
 
+    private class DependencyVisitor < Visitor
+      getter files
+      @files = Set(String).new
+
+      def visit_any(node)
+        true
+      end
+
+      def visit(node)
+        node.location.try { |l| l.filename.try { |f| @files.add(f) if f.is_a?(String) } }
+        true
+      end
+
+      def accept(node)
+        node.accept self
+      end
+    end
+
     private def codegen(program, node : ASTNode, sources, output_filename)
       llvm_modules = @progress_tracker.stage("Codegen (crystal)") do
         program.codegen node, debug: debug, single_module: @single_module || (!@thin_lto && @release) || @cross_compile || @emit
@@ -276,9 +299,17 @@ module Crystal
       target_triple = target_machine.triple
 
       units = llvm_modules.map do |type_name, info|
-        llvm_mod = info.mod
-        llvm_mod.target = target_triple
-        CompilationUnit.new(self, program, type_name, llvm_mod, output_dir, bc_flags_changed)
+        Build::Job.new(type_name, output_dir, dependencies: sources.map { |s | s.to_s}, flags: @flags) do |dependencies|
+          stdout.puts("Building #{type_name}") if verbose?
+
+          llvm_mod = info.mod
+          llvm_mod.target = target_triple
+          unit = CompilationUnit.new(self, program, type_name, llvm_mod, output_dir, bc_flags_changed)
+          unit.compile
+          dependencies = DependencyVisitor.new
+          info.nodes.each { |n| dependencies.accept(n) }
+          Build::Result.new(unit.object_name, dependencies.files)
+        end
       end
 
       if @cross_compile
@@ -288,13 +319,7 @@ module Crystal
           codegen program, units, output_filename, output_dir
         end
 
-        {% if flag?(:darwin) %}
-          run_dsymutil(output_filename) unless debug.none?
-        {% end %}
       end
-
-      CacheDir.instance.cleanup if @cleanup
-
       result
     end
 
@@ -321,19 +346,19 @@ module Crystal
     end
 
     private def cross_compile(program, units, output_filename)
-      unit = units.first
-      llvm_mod = unit.llvm_mod
-      object_name = output_filename + program.object_extension
+      # unit = units.first
+      # llvm_mod = unit.llvm_mod
+      # object_name = output_filename + program.object_extension
 
-      optimize llvm_mod if @release
+      # optimize llvm_mod if @release
 
-      if emit = @emit
-        unit.emit(emit, emit_base_filename || output_filename)
-      end
+      # if emit = @emit
+      #   unit.emit(emit, emit_base_filename || output_filename)
+      # end
 
-      target_machine.emit_obj_to_file llvm_mod, object_name
+      # target_machine.emit_obj_to_file llvm_mod, object_name
 
-      print_command(*linker_command(program, [object_name], output_filename, nil))
+      # print_command(*linker_command(program, [object_name], output_filename, nil))
     end
 
     private def print_command(command, args)
@@ -386,56 +411,47 @@ module Crystal
       end
     end
 
-    private def codegen(program, units : Array(CompilationUnit), output_filename, output_dir)
-      object_names = units.map &.object_filename
+    private def codegen(program, units : Array(Build::Job), output_filename, output_dir)
 
       target_triple = target_machine.triple
       reused = [] of String
 
-      @progress_tracker.stage("Codegen (bc+obj)") do
-        @progress_tracker.stage_progress_total = units.size
-
-        if units.size == 1
-          first_unit = units.first
-          first_unit.compile
-          reused << first_unit.name if first_unit.reused_previous_compilation?
-
-          if emit = @emit
-            first_unit.emit(emit, emit_base_filename || output_filename)
+      policy = incremental ? Build::ModificationTimeBuildPolicy.new : Build::AlwaysBuildPolicy.new
+      # policy.n_threads = n_threads
+      Build::Job.new(program.name, output_dir, flags: @flags, dependencies: units) do |object_names|
+        stdout.puts("Building #{program.name}") if verbose?
+        @progress_tracker.stage("Codegen (linking)") do
+          # We check again because maybe this directory was created in between (maybe with a macro run)
+          if Dir.exists?(output_filename)
+            error "can't use `#{output_filename}` as output filename because it's a directory"
           end
-        else
-          reused = codegen_many_units(program, units, target_triple)
-        end
-      end
 
-      # We check again because maybe this directory was created in between (maybe with a macro run)
-      if Dir.exists?(output_filename)
-        error "can't use `#{output_filename}` as output filename because it's a directory"
-      end
+          output_filename = File.expand_path(output_filename)
+          Dir.cd(output_dir) do
+            linker_command = linker_command(program, object_names, output_filename, output_dir, expand: true)
 
-      output_filename = File.expand_path(output_filename)
-
-      @progress_tracker.stage("Codegen (linking)") do
-        Dir.cd(output_dir) do
-          linker_command = linker_command(program, object_names, output_filename, output_dir, expand: true)
-
-          process_wrapper(*linker_command) do |command, args|
-            Process.run(command, args, shell: true,
-              input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Pipe) do |process|
-              process.error.each_line(chomp: false) do |line|
-                hint_string = colorize("(this usually means you need to install the development package for lib\\1)").yellow.bold
-                line = line.gsub(/cannot find -l(\S+)\b/, "cannot find -l\\1 #{hint_string}")
-                line = line.gsub(/unable to find library -l(\S+)\b/, "unable to find library -l\\1 #{hint_string}")
-                line = line.gsub(/library not found for -l(\S+)\b/, "library not found for -l\\1 #{hint_string}")
-                STDERR << line
+            process_wrapper(*linker_command) do |command, args|
+              Process.run(command, args, shell: true,
+                input: Process::Redirect::Close, output: Process::Redirect::Inherit, error: Process::Redirect::Pipe) do |process|
+                process.error.each_line(chomp: false) do |line|
+                  hint_string = colorize("(this usually means you need to install the development package for lib\\1)").yellow.bold
+                  line = line.gsub(/cannot find -l(\S+)\b/, "cannot find -l\\1 #{hint_string}")
+                  line = line.gsub(/unable to find library -l(\S+)\b/, "unable to find library -l\\1 #{hint_string}")
+                  line = line.gsub(/library not found for -l(\S+)\b/, "library not found for -l\\1 #{hint_string}")
+                  STDERR << line
+                end
               end
+              $?
             end
-            $?
+            {% if flag?(:darwin) %}
+              run_dsymutil(output_filename) unless debug.none?
+            {% end %}
+            output_filename
           end
         end
-      end
+      end.build(policy)
 
-      {units, reused}
+      CacheDir.instance.cleanup if @cleanup
     end
 
     private def codegen_many_units(program, units, target_triple)
