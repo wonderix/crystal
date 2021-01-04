@@ -4,6 +4,7 @@ require "../syntax/visitor"
 require "../semantic"
 require "../program"
 require "./llvm_builder_helper"
+require "./modulesplit"
 
 module Crystal
   MAIN_NAME           = "__crystal_main"
@@ -63,6 +64,11 @@ module Crystal
     end
 
     def codegen(node, single_module = false, debug = Debug::Default)
+      # time_start = Time.monotonic
+      # splitter = ModuleSplitVisitor.new(self, !!single_module)
+      # splitter.accept(node)
+      # p Time.monotonic - time_start
+
       visitor = CodeGenVisitor.new self, node, single_module: single_module, debug: debug
       visitor.accept node
       visitor.process_finished_hooks
