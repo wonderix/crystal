@@ -299,9 +299,9 @@ module Crystal
       target_triple = target_machine.triple
 
       units = llvm_modules.map do |type_name, info|
-        Build::Job.new(type_name, output_dir, dependencies: sources.map { |s | s.to_s}, flags: @flags) do |dependencies|
+        Build::Job.new(type_name, output_dir, dependencies: sources.map { |s| s.to_s }, flags: @flags) do |dependencies|
           stdout.puts("Building #{type_name}") if verbose?
-
+          info.codegen
           llvm_mod = info.mod
           llvm_mod.target = target_triple
           unit = CompilationUnit.new(self, program, type_name, llvm_mod, output_dir, bc_flags_changed)
@@ -318,7 +318,6 @@ module Crystal
         result = with_file_lock(output_dir) do
           codegen program, units, output_filename, output_dir
         end
-
       end
       result
     end
@@ -412,7 +411,6 @@ module Crystal
     end
 
     private def codegen(program, units : Array(Build::Job), output_filename, output_dir)
-
       target_triple = target_machine.triple
       reused = [] of String
 

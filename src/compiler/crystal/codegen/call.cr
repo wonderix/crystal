@@ -319,9 +319,9 @@ class Crystal::CodeGenVisitor
     call_args.push @last
 
     target_def = node.target_def
-    func = target_def_fun(target_def, self_type)
-
-    codegen_call_or_invoke(node, target_def, self_type, func, call_args, target_def.raises?, target_def.type)
+    target_def_fun(target_def, self_type) do |func|
+      codegen_call_or_invoke(node, target_def, self_type, func, call_args, target_def.raises?, target_def.type)
+    end
   end
 
   def codegen_dispatch(node, target_defs)
@@ -442,8 +442,9 @@ class Crystal::CodeGenVisitor
       return true
     end
 
-    func = target_def_fun(target_def, self_type)
-    codegen_call_or_invoke(node, target_def, self_type, func, call_args, target_def.raises?, target_def.type)
+    target_def_fun(target_def, self_type) do |func|
+      codegen_call_or_invoke(node, target_def, self_type, func, call_args, target_def.raises?, target_def.type)
+    end
   end
 
   # If a method's body is just a simple literal, "self", or an instance variable,

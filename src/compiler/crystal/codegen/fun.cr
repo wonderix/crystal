@@ -1,14 +1,18 @@
 require "./codegen"
 
 class Crystal::CodeGenVisitor
-  def target_def_fun(target_def, self_type)
-    mangled_name = target_def.mangled_name(@program, self_type)
-    mod = type_module(self_type)
-    self_type_mod = mod.mod
-    mod.nodes << target_def
+  def self.capture(&block)
+    block
+  end
 
-    func = self_type_mod.functions[mangled_name]? || codegen_fun(mangled_name, target_def, self_type)
-    check_mod_fun self_type_mod, mangled_name, func
+  def target_def_fun(target_def, self_type, &block : LLVM::Function -> _)
+    mangled_name = target_def.mangled_name(@program, self_type)
+    with_type_module(self_type, target_def) do |mod|
+      self_type_mod = mod.mod
+
+      func = self_type_mod.functions[mangled_name]? || codegen_fun(mangled_name, target_def, self_type, mod)
+      block.call(check_mod_fun(self_type_mod, mangled_name, func))
+    end
   end
 
   def main_fun(name)
@@ -50,7 +54,7 @@ class Crystal::CodeGenVisitor
     new_fun
   end
 
-  def codegen_fun(mangled_name, target_def, self_type, is_exported_fun = false, fun_module_info = type_module(self_type), is_fun_literal = false, is_closure = false)
+  def codegen_fun(mangled_name, target_def, self_type, fun_module_info, is_exported_fun = false, is_fun_literal = false, is_closure = false)
     old_position = insert_block
     old_entry_block = @entry_block
     old_alloca_block = @alloca_block
@@ -564,10 +568,10 @@ class Crystal::CodeGenVisitor
     assign pointer, var_type, arg.type, value
   end
 
-  def type_module(type)
+  def with_type_module(type, node, &block : ModuleInfo -> _)
     return @main_module_info if @single_module
 
-    @types_to_modules[type] ||= begin
+    mod = @types_to_modules[type] ||= begin
       type = type.remove_typedef
       case type
       when Nil, Program, LibType
@@ -589,5 +593,8 @@ class Crystal::CodeGenVisitor
         ModuleInfo.new(llvm_mod, llvm_typer, llvm_builder)
       end
     end
+
+    mod.nodes << node
+    mod.blocks << block
   end
 end

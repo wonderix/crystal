@@ -145,7 +145,15 @@ module Crystal
 
     record Handler, node : ExceptionHandler, context : Context
     record StringKey, mod : LLVM::Module, string : String
-    record ModuleInfo, mod : LLVM::Module, typer : LLVMTyper, builder : CrystalLLVMBuilder, nodes = Array(ASTNode).new
+    record ModuleInfo, mod : LLVM::Module, typer : LLVMTyper, builder : CrystalLLVMBuilder, nodes = Array(ASTNode).new, blocks = Array(Proc(ModuleInfo, Nil)).new
+
+    struct ModuleInfo
+      def codegen
+        blocks.each do |block|
+          block.call(self)
+        end
+      end
+    end
 
     @abi : LLVM::ABI
     @main_ret_type : Type
@@ -344,7 +352,9 @@ module Crystal
       end
 
       @unused_fun_defs.each do |node|
-        codegen_fun node.real_name, node.external, @program, is_exported_fun: true
+        with_type_module(@program, node.external) do |mod|
+          codegen_fun node.real_name, node.external, @program, mod, is_exported_fun: true
+        end
       end
 
       env_dump = ENV["DUMP"]?
@@ -380,20 +390,27 @@ module Crystal
       end
 
       unless node.external.dead?
-        # Mark as dead so we don't generate it twice
-        # (can happen with well known functions like __crystal_raise)
-        node.external.dead = true
-
-        if node.external.used?
-          codegen_fun node.real_name, node.external, @program, is_exported_fun: true
-        else
-          # If the fun is not invoked we codegen it at the end so
-          # we don't have issues with constants being used before
-          # they are declared.
-          # But, apparently, llvm requires us to define them so that
-          # calls can find them, so we do so.
-          codegen_fun node.real_name, node.external, @program, is_exported_fun: false
+        unless node.external.used?
           @unused_fun_defs << node
+        end
+      end
+
+      unless node.external.dead?
+        with_type_module(@program, node.external) do |mod|
+          # Mark as dead so we don't generate it twice
+          # (can happen with well known functions like __crystal_raise)
+          node.external.dead = true
+
+          if node.external.used?
+            codegen_fun node.real_name, node.external, @program, mod, is_exported_fun: true
+          else
+            # If the fun is not invoked we codegen it at the end so
+            # we don't have issues with constants being used before
+            # they are declared.
+            # But, apparently, llvm requires us to define them so that
+            # calls can find them, so we do so.
+            codegen_fun node.real_name, node.external, @program, mod, is_exported_fun: false
+          end
         end
       end
 
@@ -546,17 +563,18 @@ module Crystal
         node.def.set_type node.return_type
       end
 
-      the_fun = codegen_fun fun_literal_name, node.def, context.type, fun_module_info: @main_module_info, is_fun_literal: true, is_closure: is_closure
-      the_fun = check_main_fun fun_literal_name, the_fun
+      with_type_module(@program, node.def) do |mod|
+        the_fun = codegen_fun fun_literal_name, node.def, context.type, mod, is_fun_literal: true, is_closure: is_closure
+        the_fun = check_main_fun fun_literal_name, the_fun
 
-      fun_ptr = bit_cast(the_fun, llvm_context.void_pointer)
-      if is_closure
-        ctx_ptr = bit_cast(context.closure_ptr.not_nil!, llvm_context.void_pointer)
-      else
-        ctx_ptr = llvm_context.void_pointer.null
+        fun_ptr = bit_cast(the_fun, llvm_context.void_pointer)
+        if is_closure
+          ctx_ptr = bit_cast(context.closure_ptr.not_nil!, llvm_context.void_pointer)
+        else
+          ctx_ptr = llvm_context.void_pointer.null
+        end
+        @last = make_fun node.type, fun_ptr, ctx_ptr
       end
-      @last = make_fun node.type, fun_ptr, ctx_ptr
-
       false
     end
 
@@ -590,22 +608,23 @@ module Crystal
 
       if obj = node.obj
         accept obj
-        call_self = @last
-      elsif owner.passed_as_self?
-        call_self = llvm_self
       end
 
-      last_fun = target_def_fun(node.call.target_def, owner)
-
-      set_current_debug_location(node) if @debug.line_numbers?
-      fun_ptr = bit_cast(last_fun, llvm_context.void_pointer)
-      if call_self && !owner.metaclass? && !owner.is_a?(LibType)
-        ctx_ptr = bit_cast(call_self, llvm_context.void_pointer)
-      else
-        ctx_ptr = llvm_context.void_pointer.null
+      target_def_fun(node.call.target_def, owner) do |last_fun|
+        if node.obj
+          call_self = @last
+        elsif owner.passed_as_self?
+          call_self = llvm_self
+        end
+        set_current_debug_location(node) if @debug.line_numbers?
+        fun_ptr = bit_cast(last_fun, llvm_context.void_pointer)
+        if call_self && !owner.metaclass? && !owner.is_a?(LibType)
+          ctx_ptr = bit_cast(call_self, llvm_context.void_pointer)
+        else
+          ctx_ptr = llvm_context.void_pointer.null
+        end
+        @last = make_fun node.type, fun_ptr, ctx_ptr
       end
-      @last = make_fun node.type, fun_ptr, ctx_ptr
-
       false
     end
 
