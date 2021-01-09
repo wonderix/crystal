@@ -10,6 +10,7 @@ module Crystal
     def initialize(@program : Program, @single_module : Bool)
       @main_object_file = ObjectFile.new("main", @program)
       @object_files = {"" => @main_object_file} of String => ObjectFile
+      @proc_counts = Hash(String, Int32).new(0)
     end
 
     def visit(node : Call)
@@ -29,6 +30,8 @@ module Crystal
       end
 
       owner = node.super? ? node.scope : node.target_def.owner
+
+      prepare_call_args node
 
       if block = node.block
         # A block might turn into a proc literal but not be used if it participates in a dispatch
@@ -54,6 +57,72 @@ module Crystal
 
         target_def_fun(c.target_def, owner)
       end
+      false
+    end
+
+    def visit(node : FunDef)
+      if node.external.used?
+        codegen_fun node.real_name, node.external, @program, is_exported_fun: true
+      else
+        codegen_fun node.real_name, node.external, @program, is_exported_fun: false
+      end
+
+      false
+    end
+
+    def prepare_call_args(node)
+      obj = node.obj
+
+      accept obj if obj
+
+      node.args.each do |arg|
+        accept arg
+      end
+    end
+
+    def fun_literal_name(node : ProcLiteral)
+      location = node.location.try &.expanded_location
+      if location && (type = node.type?)
+        proc_name = true
+        filename = location.filename.as(String)
+        fun_literal_name = Crystal.safe_mangling(@program, "~proc#{type}@#{Crystal.relative_filename(filename)}:#{location.line_number}")
+      else
+        proc_name = false
+        fun_literal_name = "~fun_literal"
+      end
+      proc_count = @proc_counts[fun_literal_name]
+      proc_count += 1
+      @proc_counts[fun_literal_name] = proc_count
+
+      if proc_count > 1
+        if proc_name
+          fun_literal_name = "#{fun_literal_name[0...5]}#{proc_count}#{fun_literal_name[5..-1]}"
+        else
+          fun_literal_name = "#{fun_literal_name}#{proc_count}"
+        end
+      end
+
+      fun_literal_name
+    end
+
+    def visit(node : ProcLiteral)
+      fun_literal_name = fun_literal_name(node)
+
+      if node.force_nil?
+        node.def.set_type @program.nil
+      else
+        # node.def.set_type node.return_type
+      end
+
+      codegen_fun(fun_literal_name, node.def, nil, object_file: @main_object_file)
+
+      false
+    end
+
+    def visit(node : If)
+      accept node.cond
+      accept node.then
+      accept node.else
       false
     end
 
@@ -132,8 +201,7 @@ module Crystal
       mangled_name = target_def.mangled_name(@program, self_type)
       object_file = type_module(self_type)
       unless object_file.defs[mangled_name]?
-        object_file.defs[mangled_name] = target_def
-        codegen_fun(target_def)
+        codegen_fun(mangled_name, target_def, self_type)
       end
     end
 
@@ -153,7 +221,8 @@ module Crystal
       end
     end
 
-    def codegen_fun(target_def, is_exported_fun = false)
+    def codegen_fun(mangled_name, target_def, self_type, is_exported_fun = false, object_file = type_module(self_type))
+      object_file.defs[mangled_name] = target_def
       needs_body = !target_def.is_a?(External) || is_exported_fun
       if needs_body
         body = target_def.body

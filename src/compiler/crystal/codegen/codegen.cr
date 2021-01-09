@@ -64,16 +64,26 @@ module Crystal
     end
 
     def codegen(node, single_module = false, debug = Debug::Default)
-      # time_start = Time.monotonic
-      # splitter = ModuleSplitVisitor.new(self, !!single_module)
-      # splitter.accept(node)
-      # p Time.monotonic - time_start
+      time_start = Time.monotonic
+      splitter = ModuleSplitVisitor.new(self, !!single_module)
+      splitter.accept(node)
 
       visitor = CodeGenVisitor.new self, node, single_module: single_module, debug: debug
       visitor.accept node
       visitor.process_finished_hooks
-      visitor.finish
 
+      visitor.modules.each do |name, mod|
+        obj = splitter.object_files[name]?
+        if obj
+          mod.defs.each do |mangled_name, d|
+            puts "#{name}: missing def #{mangled_name}" unless obj.defs[mangled_name]?
+          end
+        else
+          puts "#{name}: missing" unless obj
+        end
+      end
+
+      visitor.finish
       visitor.modules
     end
 
@@ -151,7 +161,7 @@ module Crystal
 
     record Handler, node : ExceptionHandler, context : Context
     record StringKey, mod : LLVM::Module, string : String
-    record ModuleInfo, mod : LLVM::Module, typer : LLVMTyper, builder : CrystalLLVMBuilder
+    record ModuleInfo, mod : LLVM::Module, typer : LLVMTyper, builder : CrystalLLVMBuilder, defs = Hash(String, Def).new
 
     @abi : LLVM::ABI
     @main_ret_type : Type

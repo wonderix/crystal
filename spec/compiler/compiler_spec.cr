@@ -6,7 +6,7 @@ describe "Compiler" do
     SemanticVersion.parse(Crystal::Config.version)
   end
 
-  it "compiles a file" do
+  it "compiles a file", focus: true do
     with_temp_executable "compiler_spec_output" do |path|
       Crystal::Command.run ["build"].concat(program_flags_options).concat([compiler_datapath("compiler_sample"), "-o", path])
 

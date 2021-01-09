@@ -3,9 +3,13 @@ require "./codegen"
 class Crystal::CodeGenVisitor
   def target_def_fun(target_def, self_type)
     mangled_name = target_def.mangled_name(@program, self_type)
-    self_type_mod = type_module(self_type).mod
+    mod = type_module(self_type)
+    self_type_mod = mod.mod
 
-    func = self_type_mod.functions[mangled_name]? || codegen_fun(mangled_name, target_def, self_type)
+    func = self_type_mod.functions[mangled_name]? || begin
+      mod.defs[mangled_name] = target_def
+      codegen_fun(mangled_name, target_def, self_type)
+    end
     check_mod_fun self_type_mod, mangled_name, func
   end
 
@@ -573,7 +577,7 @@ class Crystal::CodeGenVisitor
       else
         type_name = type.instance_type.to_s
       end
-
+      raise "Missing" if type_name == "Array(String)"
       @modules[type_name] ||= begin
         llvm_context = LLVM::Context.new
         # LLVM::Context.register(llvm_context, type_name)
