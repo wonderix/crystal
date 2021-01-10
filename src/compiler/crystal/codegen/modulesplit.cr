@@ -70,6 +70,49 @@ module Crystal
       false
     end
 
+    def visit(node : Assign)
+      return false if node.discarded?
+
+      target, value = node.target, node.value
+      codegen_assign(target, value, node)
+    end
+
+    def codegen_assign(target, value, node)
+      target_type = target.type?
+
+      unless target_type
+        if target.is_a?(ClassVar)
+          initialize_class_var(target)
+        end
+        return false
+      end
+
+      accept value
+
+      false
+    end
+
+    def initialize_class_var(class_var : ClassVar)
+      initialize_class_var(class_var.var)
+    end
+
+    def initialize_class_var(class_var : MetaTypeVar)
+      initializer = class_var.initializer
+
+      if initializer
+        initialize_class_var(class_var, initializer)
+      end
+    end
+
+    def initialize_class_var(class_var : MetaTypeVar, initializer : ClassVarInitializer)
+      create_initialize_class_var_function(class_var, initializer)
+    end
+
+    def create_initialize_class_var_function(class_var, initializer)
+      return nil if class_var.simple_initializer?
+      accept initializer.node
+    end
+
     def prepare_call_args(node)
       obj = node.obj
 

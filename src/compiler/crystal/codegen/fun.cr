@@ -577,7 +577,7 @@ class Crystal::CodeGenVisitor
       else
         type_name = type.instance_type.to_s
       end
-      raise "Missing" if type_name == "Array(String)"
+      # raise "Missing" if type_name == "Array(String)"
       @modules[type_name] ||= begin
         llvm_context = LLVM::Context.new
         # LLVM::Context.register(llvm_context, type_name)
