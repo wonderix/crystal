@@ -65,6 +65,38 @@ def Deque.from_json(string_or_io) : Nil
   end
 end
 
+module Iterator(T)
+  def self.from_json(string_or_io)
+    FromJson(T).new(JSON::PullParser.new(string_or_io), true)
+  end
+
+  def self.new(pull : JSON::PullParser)
+    FromJson(T).new(pull, false)
+  end
+
+  class FromJson(T)
+    include Iterator(T)
+
+    def initialize(@pull : JSON::PullParser, @check_eof : Bool)
+      @pull.read_begin_array
+      @end = false
+    end
+
+    def next
+      if @end
+        stop
+      elsif @pull.kind.end_array?
+        @pull.read_next
+        @end = true
+        raise JSON::ParseException.new("Invalid JSON", *@pull.location) if @check_eof && !@pull.kind.eof?
+        stop
+      else
+        T.new(@pull)
+      end
+    end
+  end
+end
+
 def Nil.new(pull : JSON::PullParser)
   pull.read_null
 end

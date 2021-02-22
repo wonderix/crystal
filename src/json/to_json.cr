@@ -114,6 +114,14 @@ struct Set
   end
 end
 
+module Iterator(T)
+  def to_json(json : JSON::Builder)
+    json.array do
+      each &.to_json(json)
+    end
+  end
+end
+
 class Hash
   # Serializes this Hash into JSON.
   #
