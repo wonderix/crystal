@@ -66,18 +66,32 @@ def Deque.from_json(string_or_io) : Nil
 end
 
 module Iterator(T)
+  # Reads the content of a JSON array into an iterator in a lazy way.
+  # With this method it should be possible to process a huge JSON array, without
+  # the requirement that the whole array fits into memory.
+  #
+  # The following example produces a huge file, uses a lot of CPU but should not require much memory.
+  # ```
+  # File.open("/tmp/test.json", "w+") do |f|
+  #   (0..1_000_000_000).each.to_json(f)
+  # end
+  # File.open("/tmp/test.json", "r") do |f|
+  #   p Iterator(Int32).from_json(f).skip(1_000_000_000).to_a
+  # end
+  # ```
   def self.from_json(string_or_io)
-    FromJson(T).new(JSON::PullParser.new(string_or_io), true)
+    Iterator(T).new(JSON::PullParser.new(string_or_io))
   end
 
+  # Creates a new iterator which iterates over a JSON array. See also `Iterator#from_json`.
   def self.new(pull : JSON::PullParser)
-    FromJson(T).new(pull, false)
+    FromJson(T).new(pull)
   end
 
-  class FromJson(T)
+  private class FromJson(T)
     include Iterator(T)
 
-    def initialize(@pull : JSON::PullParser, @check_eof : Bool)
+    def initialize(@pull : JSON::PullParser)
       @pull.read_begin_array
       @end = false
     end
@@ -88,7 +102,6 @@ module Iterator(T)
       elsif @pull.kind.end_array?
         @pull.read_next
         @end = true
-        raise JSON::ParseException.new("Invalid JSON", *@pull.location) if @check_eof && !@pull.kind.eof?
         stop
       else
         T.new(@pull)

@@ -1,5 +1,6 @@
 require "../spec_helper"
 require "yaml"
+require "json"
 {% unless flag?(:win32) %}
   require "big"
   require "big/yaml"
@@ -111,6 +112,10 @@ describe "YAML serialization" do
         elements << element
       end
       elements.should eq([1, 2, 3])
+    end
+
+    it "does Iterator#from_yaml" do
+      Iterator(Int32).from_yaml("---\n- 1\n- 2\n- 3\n").to_a.should eq([1, 2, 3])
     end
 
     it "does Hash#from_yaml" do
@@ -278,6 +283,12 @@ describe "YAML serialization" do
         ex.location.should eq({2, 3})
       end
     end
+
+    it "raises parse exception for invalid types in  Iterator#from_yaml" do
+      expect_raises(YAML::ParseException) do
+        Iterator(Int32).from_yaml("---\n- a\n- b\n- c\n").to_a
+      end
+    end
   end
 
   describe "to_yaml" do
@@ -362,6 +373,10 @@ describe "YAML serialization" do
 
     it "does for Array" do
       Array(Int32).from_yaml([1, 2, 3].to_yaml).should eq([1, 2, 3])
+    end
+
+    it "does for Iterator" do
+      Iterator(Int32).from_yaml((1..3).each.to_yaml).to_a.should eq([1, 2, 3])
     end
 
     it "does for Set" do

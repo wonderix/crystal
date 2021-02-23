@@ -61,9 +61,15 @@ describe "JSON serialization" do
       Iterator(String).from_json(%(["a", "b"])).to_a.should eq(["a", "b"])
     end
 
-    it "raises an error Iterator(String)#from_json with additional tokens" do
+    it "raises an error Iterator(String)#from_json with invalid types" do
       expect_raises(JSON::ParseException) do
-        Iterator(String).from_json(%(["a", "b"],[])).to_a.should eq(["a", "b"])
+        Iterator(String).from_json(%([1, 2])).to_a
+      end
+    end
+
+    it "raises an error Iterator(String)#from_json with invalid JSON" do
+      expect_raises(JSON::ParseException) do
+        Iterator(String).from_json(%(["a")).to_a
       end
     end
 

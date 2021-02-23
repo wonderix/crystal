@@ -48,6 +48,18 @@ private def parse_scalar(ctx, node, type : T.class) forall T
   end
 end
 
+module Iterator(T)
+  # Reads the content for an iterator from a YAML sequence
+  def self.new(ctx : YAML::ParseContext, node : YAML::Nodes::Node)
+    unless node.is_a?(YAML::Nodes::Sequence)
+      node.raise "Expected sequence, not #{node.kind}"
+    end
+    # Makes no sense to implement a lazy iterator like for JSON
+    # because nodes already exist in memory
+    node.nodes.each.map { |n| T.new(ctx, n) }
+  end
+end
+
 def Nil.new(ctx : YAML::ParseContext, node : YAML::Nodes::Node)
   parse_scalar(ctx, node, self)
 end
