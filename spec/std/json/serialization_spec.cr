@@ -58,7 +58,7 @@ describe "JSON serialization" do
     end
 
     it "does Iterator(String)#from_json" do
-      Iterator(String).from_json(%(["a", "b"])).to_a.should eq(["a", "b"])
+      assert_iterates_iterator ["a", "b"], Iterator(String).from_json(%(["a", "b"]))
     end
 
     it "raises an error Iterator(String)#from_json with additional tokens" do
