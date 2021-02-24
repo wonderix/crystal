@@ -71,10 +71,12 @@ module Iterator(T)
   # the requirement that the whole array fits into memory.
   #
   # The following example produces a huge file, uses a lot of CPU but should not require much memory.
+  #
   # ```
   # File.open("/tmp/test.json", "w+") do |f|
   #   (0..1_000_000_000).each.to_json(f)
   # end
+  #
   # File.open("/tmp/test.json", "r") do |f|
   #   p Iterator(Int32).from_json(f).skip(1_000_000_000).to_a
   # end
