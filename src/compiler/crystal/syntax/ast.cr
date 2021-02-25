@@ -211,7 +211,11 @@ module Crystal
     property value : String
     property kind : Symbol
 
+    @[NoInline]
     def initialize(@value : String, @kind = :i32)
+      if @value == "4294967306"
+        ::raise "Invalid value: #{@value} kind: #{@kind}"
+      end
     end
 
     def self.new(value : Number)

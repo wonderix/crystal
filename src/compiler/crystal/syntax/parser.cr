@@ -926,6 +926,7 @@ module Crystal
       atomic
     end
 
+    @[NoInline]
     def parse_atomic_without_location
       case @token.type
       when :"("
@@ -948,6 +949,9 @@ module Crystal
         parse_annotation
       when :NUMBER
         @wants_regex = false
+        if @token.value.to_s == "4294967306"
+          ::raise "Invalid value: #{@token.inspect}"
+        end
         node_and_next_token NumberLiteral.new(@token.value.to_s, @token.number_kind)
       when :CHAR
         node_and_next_token CharLiteral.new(@token.value.as(Char))

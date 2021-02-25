@@ -699,6 +699,11 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
         end
       end
 
+      puts "ToplevelVisitor#visit_enum_member(#{counter})"
+      if counter.to_s == "4294967306"
+        ::raise "Invalid value: #{counter}"
+      end
+
       all_value |= counter
       const_value = NumberLiteral.new(counter.to_s, base_type.kind)
       member.default_value = const_value
